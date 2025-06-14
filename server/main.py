@@ -1,14 +1,15 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from uuid import uuid4
 from sqlalchemy.orm import Session
 
-from models import WorkflowDB, NodeDB, NodeType
+from models import NodeType
 from schemas import (
     CreateWorkflowRequest, CreateWorkflowResponse, 
     AddNodeRequest, WorkflowDetailResponse
 )
 from database import get_db, engine, Base
+from repositories.workflow_repository import WorkflowRepository
+from repositories.node_repository import NodeRepository
 
 app = FastAPI(title="Workflow App")
 
@@ -25,18 +26,17 @@ Base.metadata.create_all(bind=engine)
 
 @app.post("/workflows", response_model=CreateWorkflowResponse)
 def create_workflow(req: CreateWorkflowRequest, db: Session = Depends(get_db)):
-    wf_id = str(uuid4())
-    new_wf = WorkflowDB(id=wf_id, name=req.name)
-    db.add(new_wf)
-    db.commit()
-    db.refresh(new_wf)
-    return CreateWorkflowResponse(id=wf_id, name=req.name)
+    repo = WorkflowRepository(db)
+    workflow = repo.create_workflow(req.name)
+    return CreateWorkflowResponse(id=workflow.id, name=workflow.name)
 
 @app.get("/workflows/{wf_id}", response_model=WorkflowDetailResponse)
 def get_workflow(wf_id: str, db: Session = Depends(get_db)):
-    wf = db.query(WorkflowDB).filter(WorkflowDB.id == wf_id).first()
+    repo = WorkflowRepository(db)
+    wf = repo.get_workflow(wf_id)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
+
     return WorkflowDetailResponse(
         id=wf.id, 
         name=wf.name, 
@@ -45,25 +45,20 @@ def get_workflow(wf_id: str, db: Session = Depends(get_db)):
 
 @app.post("/workflows/{wf_id}/nodes")
 def add_node(wf_id: str, req: AddNodeRequest, db: Session = Depends(get_db)):
-    wf = db.query(WorkflowDB).filter(WorkflowDB.id == wf_id).first()
+    workflow_repo = WorkflowRepository(db)
+    
+    wf = workflow_repo.get_workflow(wf_id)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
-
-    node_id = str(uuid4())
-    new_node = NodeDB(
-        id=node_id,
-        workflow_id=wf_id,
-        node_type=req.node_type,
-        config=req.config
-    )
-    db.add(new_node)
-    db.commit()
-    db.refresh(new_node)
-    return {"message": "Node added", "node_id": node_id}
+    
+    node_repo = NodeRepository(db)
+    node = node_repo.add_node(wf_id, req.node_type, req.config)
+    return {"message": "Node added", "node_id": node.id}
 
 @app.post("/workflows/{wf_id}/run")
 def run_workflow(wf_id: str, db: Session = Depends(get_db)):
-    wf = db.query(WorkflowDB).filter(WorkflowDB.id == wf_id).first()
+    repo = WorkflowRepository(db)
+    wf = repo.get_workflow(wf_id)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
