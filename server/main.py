@@ -1,59 +1,72 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from uuid import uuid4
+from sqlalchemy.orm import Session
 
-from server.models import Workflow, Node, NodeType
-from server.schemas import (
+from models import WorkflowDB, NodeDB, NodeType
+from schemas import (
     CreateWorkflowRequest, CreateWorkflowResponse, 
     AddNodeRequest, WorkflowDetailResponse
 )
+from database import get_db, engine, Base
 
 app = FastAPI(title="Workflow App")
 
+# CORS設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins="http://localhost:*",
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"]
 )
 
-# 簡易的にメモリ内で管理
-workflows = {}
+# データベースの初期化
+Base.metadata.create_all(bind=engine)
 
 @app.post("/workflows", response_model=CreateWorkflowResponse)
-def create_workflow(req: CreateWorkflowRequest):
+def create_workflow(req: CreateWorkflowRequest, db: Session = Depends(get_db)):
     wf_id = str(uuid4())
-    new_wf = Workflow(id=wf_id, name=req.name, nodes=[])
-    workflows[wf_id] = new_wf
+    new_wf = WorkflowDB(id=wf_id, name=req.name)
+    db.add(new_wf)
+    db.commit()
+    db.refresh(new_wf)
     return CreateWorkflowResponse(id=wf_id, name=req.name)
 
 @app.get("/workflows/{wf_id}", response_model=WorkflowDetailResponse)
-def get_workflow(wf_id: str):
-    wf = workflows.get(wf_id)
+def get_workflow(wf_id: str, db: Session = Depends(get_db)):
+    wf = db.query(WorkflowDB).filter(WorkflowDB.id == wf_id).first()
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return WorkflowDetailResponse(
         id=wf.id, 
         name=wf.name, 
-        nodes=[node.dict() for node in wf.nodes]
+        nodes=[node.__dict__ for node in wf.nodes]
     )
 
 @app.post("/workflows/{wf_id}/nodes")
-def add_node(wf_id: str, req: AddNodeRequest):
-    wf = workflows.get(wf_id)
+def add_node(wf_id: str, req: AddNodeRequest, db: Session = Depends(get_db)):
+    wf = db.query(WorkflowDB).filter(WorkflowDB.id == wf_id).first()
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
+
     node_id = str(uuid4())
-    new_node = Node(id=node_id, node_type=req.node_type, config=req.config)
-    wf.nodes.append(new_node)
+    new_node = NodeDB(
+        id=node_id,
+        workflow_id=wf_id,
+        node_type=req.node_type,
+        config=req.config
+    )
+    db.add(new_node)
+    db.commit()
+    db.refresh(new_node)
     return {"message": "Node added", "node_id": node_id}
 
 @app.post("/workflows/{wf_id}/run")
-def run_workflow(wf_id: str):
-    wf = workflows.get(wf_id)
+def run_workflow(wf_id: str, db: Session = Depends(get_db)):
+    wf = db.query(WorkflowDB).filter(WorkflowDB.id == wf_id).first()
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    
+
     # シンプルに、ノードを順に処理してみる（疑似実装）
     data = {"text": "Initial text from some doc ..."}  # 本来はアップロードファイルの解析結果など
     for node in wf.nodes:

@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import List
 
-from .models import NodeType
+from models import NodeType
 
 class CreateWorkflowRequest(BaseModel):
     name: str
