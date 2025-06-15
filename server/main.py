@@ -10,6 +10,7 @@ from schemas import (
 from database import get_db, engine, Base
 from repositories.workflow_repository import WorkflowRepository
 from repositories.node_repository import NodeRepository
+from services.generative_ai_service import GenerativeAIService
 
 app = FastAPI(title="Workflow App")
 
@@ -40,13 +41,12 @@ def get_workflow(wf_id: str, db: Session = Depends(get_db)):
     return WorkflowDetailResponse(
         id=wf.id, 
         name=wf.name, 
-        nodes=[node.__dict__ for node in wf.nodes]
+        nodes=[{ "id": node.id, "node_type": node.node_type, "config": node.config } for node in wf.nodes]
     )
 
 @app.post("/workflows/{wf_id}/nodes")
 def add_node(wf_id: str, req: AddNodeRequest, db: Session = Depends(get_db)):
     workflow_repo = WorkflowRepository(db)
-    
     wf = workflow_repo.get_workflow(wf_id)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -69,12 +69,18 @@ def run_workflow(wf_id: str, db: Session = Depends(get_db)):
             # ダミー: テキスト抽出
             data["text"] = "[EXTRACTED] " + data["text"]
         elif node.node_type == NodeType.GENERATIVE_AI:
-            # ダミー: 生成AIに投げた結果をモックで返す
-            prompt = node.config.get("prompt", "")
-            data["text"] = f"[GEN_AI with prompt='{prompt}']: " + data["text"]
+            ai_service = GenerativeAIService()
+            generated_text = ai_service.generate_text(
+                prompt=node.config["prompt"],
+                model=node.config["model"],
+                temperature=node.config["temperature"],
+                max_tokens=node.config["max_tokens"]
+            )
+            data["text"] = generated_text
         elif node.node_type == NodeType.FORMATTER:
             # ダミー: 文字列を整形
             data["text"] = data["text"].upper()
         else:
             pass  # 未知のノードタイプはスキップ
+
     return {"final_output": data["text"]}

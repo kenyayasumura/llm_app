@@ -44,7 +44,6 @@ class Workflow(BaseModel):
     class Config:
         from_attributes = True
 
-# API request/response models
 class CreateWorkflowRequest(BaseModel):
     name: str
 
