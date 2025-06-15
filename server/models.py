@@ -10,7 +10,6 @@ class NodeType(str, Enum):
     GENERATIVE_AI = "generative_ai"
     FORMATTER = "formatter"
 
-# SQLAlchemy models
 class WorkflowDB(Base):
     __tablename__ = "workflows"
 
@@ -27,7 +26,6 @@ class NodeDB(Base):
     config = Column(JSON, nullable=False)
     workflow = relationship("WorkflowDB", back_populates="nodes")
 
-# Pydantic models for API
 class Node(BaseModel):
     id: str
     node_type: NodeType

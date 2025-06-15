@@ -8,6 +8,28 @@ LLMを使用したワークフローアプリケーション
 - Python 3.12以上
 - pip
 
+### システムの依存関係
+
+PDFファイルの処理とOCR機能を使用する場合、以下のシステムライブラリが必要です：
+
+#### macOS
+```bash
+# PDF処理用
+brew install poppler
+
+# OCR処理用
+brew install tesseract tesseract-lang
+```
+
+#### Ubuntu/Debian
+```bash
+# PDF処理用
+sudo apt-get install poppler-utils
+
+# OCR処理用
+sudo apt-get install tesseract-ocr tesseract-ocr-jpn
+```
+
 ### インストール手順
 
 1. リポジトリをクローン
@@ -51,5 +73,3 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 - `GET /workflows/{wf_id}` - ワークフローの詳細取得
 - `POST /workflows/{wf_id}/nodes` - ノードの追加
 - `POST /workflows/{wf_id}/run` - ワークフローの実行
-
-詳細なAPI仕様は [API仕様書](./docs/api.md) を参照してください。 
