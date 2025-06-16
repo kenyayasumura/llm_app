@@ -1,4 +1,4 @@
-import { CreateWorkflowRequest, CreateWorkflowResponse, WorkflowDetailResponse, NodeType, AddNodeRequest, FormatterConfig, GenerativeAIConfig, ExtractTextConfig } from './types';
+import { CreateWorkflowRequest, CreateWorkflowResponse, WorkflowDetailResponse, NodeType, Node, AddNodeRequest, FormatterConfig, GenerativeAIConfig, ExtractTextConfig } from './types';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -51,7 +51,7 @@ export async function uploadPdf(workflowId: string, file: File): Promise<{ text:
     return response.json();
 }
 
-export async function runWorkflow(workflowId: string): Promise<{ final_output: string }> {
+export async function runWorkflow(workflowId: string): Promise<string[]> {
     const response = await fetch(`${API_BASE_URL}/workflows/${workflowId}/run`, {
         method: 'POST',
     });
@@ -60,4 +60,19 @@ export async function runWorkflow(workflowId: string): Promise<{ final_output: s
         throw new Error('ワークフロー実行失敗');
 
     return response.json();
-} 
+}
+
+export const updateNodes = async (workflowId: string, nodes: Node[]) => {
+    const response = await fetch(`${API_BASE_URL}/workflows/${workflowId}/nodes`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(nodes),
+    });
+
+    if (!response.ok)
+        throw new Error('Failed to update nodes');
+
+    return response.json();
+}; 

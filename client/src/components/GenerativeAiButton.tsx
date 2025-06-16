@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import {
     Button,
     Dialog,
@@ -13,12 +13,14 @@ import {
     Stack,
     ButtonProps,
 } from '@mui/material';
-import { GenerativeAIConfig, NodeType, Workflow } from '../types';
+import { EdgeConfig, GenerativeAIConfig, NodeConfig, NodeType, Workflow } from '../types';
 import { addNode } from '../api';
 import { useSnackbar } from '../contexts/SnackbarContext';
 
 interface GenerativeAiButtonProps extends ButtonProps {
     currentWorkflow: Workflow;
+    nodeTemplate: NodeConfig;
+    edgeTemplate: EdgeConfig | null;
     onRefetch: () => Promise<void>;
 }
 
@@ -28,7 +30,8 @@ const AVAILABLE_MODELS = [
     'gpt-4.5-preview'
 ];
 
-export default function GenerativeAiButton({ currentWorkflow, onRefetch, ...props }: GenerativeAiButtonProps) {
+export default function GenerativeAiButton(props: GenerativeAiButtonProps) {
+    const { currentWorkflow, nodeTemplate, edgeTemplate, onRefetch } = props
     const [open, setOpen] = useState(false);
     const { showSnackbar } = useSnackbar();
     const defaultFormData = {
@@ -36,6 +39,8 @@ export default function GenerativeAiButton({ currentWorkflow, onRefetch, ...prop
         model: AVAILABLE_MODELS[0],
         temperature: 0.7,
         max_tokens: 1000,
+        node: nodeTemplate,
+        edge: edgeTemplate,
     };
     const [formData, setFormData] = useState<GenerativeAIConfig>(defaultFormData);
 
@@ -54,6 +59,14 @@ export default function GenerativeAiButton({ currentWorkflow, onRefetch, ...prop
             showSnackbar(error.message, 'error');
         }
     };
+
+    useEffect(() => {
+        setFormData(prev => ({
+            ...prev,
+            node: nodeTemplate,
+            edge: edgeTemplate,
+        }));
+    }, [nodeTemplate, edgeTemplate]);
 
     return (
         <>
@@ -76,11 +89,12 @@ export default function GenerativeAiButton({ currentWorkflow, onRefetch, ...prop
                 <DialogContent>
                     <Stack spacing={3} sx={{ mt: 1 }}>
                         <TextField
-                            label="プロンプト"
+                            label="質問を入力してください..."
                             value={formData.prompt}
                             onChange={(e) => setFormData({ ...formData, prompt: e.target.value })}
                             fullWidth
                             multiline
+                            minRows={3}
                             rows={3}
                             required
                             inputProps={{

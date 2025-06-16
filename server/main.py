@@ -5,17 +5,16 @@ import os
 import shutil
 from pdf2image import convert_from_path
 import pytesseract
+from typing import List, Dict, Any
+from services.workflow_service import WorkflowService
 
-from models import NodeType
 from schemas import (
     CreateWorkflowRequest, CreateWorkflowResponse, 
-    AddNodeRequest, WorkflowDetailResponse
+    AddNodeRequest, WorkflowDetailResponse,
 )
 from database import get_db, engine, Base
 from repositories.workflow_repository import WorkflowRepository
 from repositories.node_repository import NodeRepository
-from services.generative_ai_service import GenerativeAIService
-from services.formatter_service import FormatterService
 
 app = FastAPI(title="Workflow App")
 
@@ -24,8 +23,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
 )
 
 # データベースの初期化
@@ -33,6 +31,10 @@ Base.metadata.create_all(bind=engine)
 
 # 一時ファイルの保存ディレクトリ
 UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# ワークフロー実行サービスのインスタンス
+workflow_service = WorkflowService()
 
 @app.post("/workflows", response_model=CreateWorkflowResponse)
 def create_workflow(req: CreateWorkflowRequest, db: Session = Depends(get_db)):
@@ -92,7 +94,7 @@ def add_node(wf_id: str, req: AddNodeRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="ワークフローが見つかりません")
 
     node_repo = NodeRepository(db)
-    node = node_repo.add_node(wf_id, req.node_type, req.config)
+    node = node_repo.add_node(wf_id, req.node_type.value, req.config)
     return {"message": "Node added", "node_id": node.id}
 
 @app.post("/workflows/{wf_id}/upload")
@@ -140,40 +142,51 @@ async def upload_pdf(wf_id: str, file: UploadFile = File(...)):
             os.remove(file_path)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/workflows/{wf_id}/run")
-def run_workflow(wf_id: str, db: Session = Depends(get_db)):
+@app.post("/workflows/{workflow_id}/run", response_model=List[str])
+async def run_workflow(workflow_id: str, db: Session = Depends(get_db)):
     """
     ワークフローを実行します。
 
     Args:
-        wf_id: ワークフローのID
+        workflow_id: ワークフローのID
         db: データベースセッション
 
     Returns:
-        最終的な出力テキスト
+        ワークフローの実行結果（文字列の配列）
     """
-    repo = WorkflowRepository(db)
-    wf = repo.get_workflow(wf_id)
-    if not wf:
-        raise HTTPException(status_code=404, detail="ワークフローが見つかりません")
+    try:
+        workflow_repo = WorkflowRepository(db)
+        workflow = workflow_repo.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="ワークフローが見つかりません")
 
-    data = {}
-    for node in wf.nodes:
-        if node.node_type == NodeType.EXTRACT_TEXT:
-            data["text"] = "[EXTRACTED] " + data["text"]
-        elif node.node_type == NodeType.GENERATIVE_AI:
-            ai_service = GenerativeAIService()
-            generated_text = ai_service.generate_text(
-                prompt=node.config["prompt"],
-                model=node.config["model"],
-                temperature=node.config["temperature"],
-                max_tokens=node.config["max_tokens"]
-            )
-            data["text"] = generated_text
-        elif node.node_type == NodeType.FORMATTER:
-            formatter_service = FormatterService()
-            data["text"] = formatter_service.format_text(data["text"], node.config)
-        else:
-            pass  # 未知のノードタイプはスキップ
+        nodes = [
+            {
+                "id": node.id,
+                "node_type": node.node_type,
+                "config": node.config
+            }
+            for node in workflow.nodes
+        ]
 
-    return {"final_output": data["text"]}
+        results = workflow_service.execute(nodes)
+        return results
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ワークフローの実行中にエラーが発生しました: {str(e)}")
+
+@app.put("/workflows/{workflow_id}/nodes")
+async def update_nodes(
+    workflow_id: str,
+    nodes: List[Dict[str, Any]],
+    db: Session = Depends(get_db)
+):
+    node_repo = NodeRepository(db)
+    updated_nodes = node_repo.update_nodes(workflow_id=workflow_id, nodes=nodes)
+
+    if not updated_nodes:
+        raise HTTPException(status_code=404, detail="No nodes found to update")
+
+    return {"status": "success", "updated_nodes": len(updated_nodes)}

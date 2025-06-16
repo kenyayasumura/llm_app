@@ -4,21 +4,43 @@ export enum NodeType {
     FORMATTER = "formatter"
 }
 
-export interface ExtractTextConfig {
+export interface NodeConfig {
+    id: string;
+    type: string;
+    position: {
+        x: number;
+        y: number;
+    };
+}
+
+export interface EdgeConfig {
+    id: string;
+    type: string;
+    source: string;
+    target: string;
+    animated: boolean;
+}
+
+interface WorkflowConfig {
+    node: NodeConfig;
+    edge: EdgeConfig | null;
+}
+
+export interface ExtractTextConfig extends WorkflowConfig {
     file_name: string;
     file_size: number;
     file_type: string;
     extracted_text: string;
 }
 
-export interface GenerativeAIConfig {
+export interface GenerativeAIConfig extends WorkflowConfig {
     prompt: string;
     model: string;
     temperature: number;
     max_tokens: number;
 }
 
-export interface FormatterConfig {
+export interface FormatterConfig extends WorkflowConfig {
     operation: "to_upper" | "to_lower" | "to_full_width" | "to_half_width";
     kana?: boolean;
     digit?: boolean;
