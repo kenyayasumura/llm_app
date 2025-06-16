@@ -150,9 +150,40 @@ class WorkflowService:
         Returns:
             str: 文字列に変換された結果
         """
+        if result is None:
+            return ""
         if isinstance(result, (dict, list)):
-            return json.dumps(result, ensure_ascii=False)
+            try:
+                return json.dumps(result, ensure_ascii=False)
+            except:
+                return str(result)
         return str(result)
+
+    def _ensure_log_entry_string(self, log_entry: Dict[str, Any]) -> Dict[str, str]:
+        """
+        ログエントリの各フィールドを文字列に変換します。
+
+        Args:
+            log_entry: 変換するログエントリ
+
+        Returns:
+            Dict[str, str]: 文字列に変換されたログエントリ
+        """
+        # resultフィールドの内容を確実に文字列に変換
+        result = log_entry.get("result", "")
+        if isinstance(result, (dict, list)):
+            try:
+                result = json.dumps(result, ensure_ascii=False)
+            except:
+                result = str(result)
+        else:
+            result = str(result)
+
+        return {
+            "step": str(log_entry.get("step", "")),
+            "result": result,
+            "timestamp": str(log_entry.get("timestamp", datetime.now().isoformat()))
+        }
 
     async def execute(self, nodes: List[dict]) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -194,12 +225,7 @@ class WorkflowService:
                         "nodeId": node_id,
                         "nodeType": node['node_type'],
                         "status": "success",
-                        "result": self._ensure_string_result(result),
-                        "execution_log": [{
-                            "step": "テキスト抽出",
-                            "result": self._ensure_string_result(result),
-                            "timestamp": datetime.now().isoformat()
-                        }]
+                        "result": self._ensure_string_result(result)
                     }
 
                 elif node['node_type'] == NodeType.GENERATIVE_AI:
@@ -209,12 +235,7 @@ class WorkflowService:
                         "nodeId": node_id,
                         "nodeType": node['node_type'],
                         "status": "success",
-                        "result": self._ensure_string_result(result),
-                        "execution_log": [{
-                            "step": "AI生成",
-                            "result": self._ensure_string_result(result),
-                            "timestamp": datetime.now().isoformat()
-                        }]
+                        "result": self._ensure_string_result(result)
                     }
 
                 elif node['node_type'] == NodeType.FORMATTER:
@@ -224,12 +245,7 @@ class WorkflowService:
                         "nodeId": node_id,
                         "nodeType": node['node_type'],
                         "status": "success",
-                        "result": self._ensure_string_result(result),
-                        "execution_log": [{
-                            "step": "フォーマット",
-                            "result": self._ensure_string_result(result),
-                            "timestamp": datetime.now().isoformat()
-                        }]
+                        "result": self._ensure_string_result(result)
                     }
 
                 elif node['node_type'] == NodeType.AGENT:
@@ -242,40 +258,37 @@ class WorkflowService:
                     ):
                         if result["status"] == "success":
                             final_result = result["execution_log"][-1]["result"]
-                            self.node_results[node_id] = {"text": self._ensure_string_result(final_result)}
+                            final_result_str = self._ensure_string_result(final_result)
+                            self.node_results[node_id] = {"text": final_result_str}
                             yield {
                                 "nodeId": node_id,
                                 "nodeType": node['node_type'],
                                 "status": "success",
-                                "result": self._ensure_string_result(final_result),
-                                "execution_log": [{
-                                    **log,
-                                    "result": self._ensure_string_result(log["result"])
-                                } for log in result["execution_log"]]
+                                "result": final_result_str,
+                                "execution_log": [self._ensure_log_entry_string(log) for log in result["execution_log"]]
                             }
                         elif result["status"] in ["timeout", "max_iterations", "max_improvement_cycles"]:
+                            error_msg = f"エージェントの実行が終了しました: {result['error']}"
                             yield {
                                 "nodeId": node_id,
                                 "nodeType": node['node_type'],
                                 "status": "error",
-                                "result": f"エージェントの実行が終了しました: {result['error']}",
+                                "result": error_msg,
                                 "execution_log": [{
                                     "step": "agent_error",
-                                    "result": f"エージェントの実行が終了しました: {result['error']}",
+                                    "result": error_msg,
                                     "timestamp": datetime.now().isoformat()
                                 }]
                             }
                         else:
                             current_result = result["execution_log"][-1]["result"] if result["execution_log"] else "処理中"
+                            current_result_str = self._ensure_string_result(current_result)
                             yield {
                                 "nodeId": node_id,
                                 "nodeType": node['node_type'],
                                 "status": result["status"],
-                                "result": self._ensure_string_result(current_result),
-                                "execution_log": [{
-                                    **log,
-                                    "result": self._ensure_string_result(log["result"])
-                                } for log in result["execution_log"]]
+                                "result": current_result_str,
+                                "execution_log": [self._ensure_log_entry_string(log) for log in result["execution_log"]]
                             }
 
                 else:

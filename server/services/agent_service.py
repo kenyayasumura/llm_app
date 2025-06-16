@@ -15,10 +15,10 @@ logger = logging.getLogger('AgentService')
 class AgentService:
     def __init__(self, debug: bool = False):
         self.ai_service = GenerativeAIService()
-        self.max_iterations = 2  # 最大実行回数を3回に制限
+        self.max_iterations = 2  # 最大実行回数を2回に制限
         self.max_improvement_cycles = 2  # 改善サイクルの最大回数
         self.timeout_seconds = 300  # タイムアウト（5分）
-        self.min_success_rate = 0.8  # 最低成功率
+        self.min_success_rate = 0.7  # 最低成功率
         self.debug = debug
         # TODO:　品質確認用のペルソナをUIから入力できるようにする
         self.quality_check_personas = {
@@ -178,27 +178,11 @@ class AgentService:
                 if self.debug:
                     logger.debug(f"集約されたレビュー: {json.dumps(aggregated_review, indent=2, ensure_ascii=False)}")
 
-                # 改善の適用
-                if aggregated_review['priority_improvements']:
-                    yield {
-                        'status': 'running',
-                        'execution_log': execution_log + [{
-                            'step': 'improvement',
-                            'result': f'改善を適用中 (サイクル {improvement_cycle + 1})',
-                            'timestamp': datetime.now().isoformat()
-                        }]
-                    }
-
-                    current_content = self._apply_improvements(current_content, aggregated_review['priority_improvements'])
-                    improvement_cycle += 1  # 改善サイクルをカウントアップ
-                    if self.debug:
-                        logger.debug(f"改善適用後の内容 (サイクル {improvement_cycle}): {current_content}")
-
                 # 成功率の更新
                 current_success_rate = aggregated_review['overall_score']
                 best_success_rate = max(best_success_rate, current_success_rate)
 
-                # 成功率が閾値を超えた場合、または改善が見られない場合は終了
+                # 成功率が閾値を超えた場合は早期終了
                 if current_success_rate >= self.min_success_rate:
                     if self.debug:
                         logger.info(f"目標達成: 成功率 {current_success_rate:.2f} (改善サイクル: {improvement_cycle})")
@@ -214,6 +198,22 @@ class AgentService:
                         'success_rate': current_success_rate
                     }
                     return
+
+                # 改善の適用（成功率が閾値を下回る場合のみ）
+                if aggregated_review['priority_improvements'] and current_success_rate < self.min_success_rate:
+                    yield {
+                        'status': 'running',
+                        'execution_log': execution_log + [{
+                            'step': 'improvement',
+                            'result': f'改善を適用中 (サイクル {improvement_cycle + 1})',
+                            'timestamp': datetime.now().isoformat()
+                        }]
+                    }
+
+                    current_content = self._apply_improvements(current_content, aggregated_review['priority_improvements'])
+                    improvement_cycle += 1  # 改善サイクルをカウントアップ
+                    if self.debug:
+                        logger.debug(f"改善適用後の内容 (サイクル {improvement_cycle}): {current_content}")
 
             iteration += 1
 
@@ -258,12 +258,23 @@ class AgentService:
 コンテキスト:
 {json.dumps(context, indent=2, ensure_ascii=False)}
 
+重要な制約事項：
+1. 事実確認が必要な情報は、必ず「要確認」としてマークしてください
+2. 不確実な情報は「推測」として明示してください
+3. 情報源がある場合は必ず明記してください
+4. 仮定に基づく判断は「仮定：」として明示してください
+5. 実際に行った調査や実験は、具体的な手順と結果を記録してください
+6. 行っていない調査や実験については、決して「行った」と記述しないでください
+
 実行結果を以下の形式でJSONを返してください：
 {{
     "status": "success" | "failure",
     "output": "実行結果",
     "error": "エラーメッセージ（失敗の場合）",
-    "next_steps": ["次のステップ"]
+    "next_steps": ["次のステップ"],
+    "assumptions": ["仮定のリスト"],
+    "verification_needed": ["要確認の項目"],
+    "sources": ["情報源のリスト"]
 }}
 """
         return self.ai_service.generate_json(prompt)
@@ -592,13 +603,34 @@ class AgentService:
 評価の観点:
 {', '.join(persona['focus_areas'])}
 
+評価基準：
+1. 目的の達成度（0.0-1.0）
+2. 制約条件の遵守度（0.0-1.0）
+3. 品質基準の達成度（0.0-1.0）
+4. 実現可能性（0.0-1.0）
+
+重要な制約事項：
+1. 実際に確認できた事実のみを評価してください
+2. 推測や仮定に基づく評価は「推測：」として明示してください
+3. 確認が必要な項目は「要確認」としてマークしてください
+4. 具体的な根拠のない改善提案は避けてください
+5. 実際に行った調査や実験は、具体的な手順と結果を記録してください
+
 以下の形式でJSONを返してください：
 {{
-    "score": 0.0-1.0,
-    "strengths": ["強み"],
-    "weaknesses": ["弱み"],
-    "improvements": ["改善提案"],
-    "priority": "high" | "medium" | "low"
+    "scores": {{
+        "purpose_achievement": 0.0-1.0,
+        "constraint_compliance": 0.0-1.0,
+        "quality_standards": 0.0-1.0,
+        "feasibility": 0.0-1.0
+    }},
+    "overall_score": 0.0-1.0,
+    "strengths": ["確認済みの強み"],
+    "weaknesses": ["確認済みの弱み"],
+    "improvements": ["具体的な改善提案"],
+    "priority": "high" | "medium" | "low",
+    "verification_needed": ["要確認の項目"],
+    "assumptions": ["仮定のリスト"]
 }}
 """
         return self.ai_service.generate_json(prompt)
@@ -611,13 +643,31 @@ class AgentService:
 レビュー:
 {json.dumps(reviews, indent=2, ensure_ascii=False)}
 
+評価基準の重み付け：
+1. 目的の達成度: 40%
+2. 制約条件の遵守度: 30%
+3. 品質基準の達成度: 20%
+4. 実現可能性: 10%
+
 以下の形式でJSONを返してください：
 {{
+    "scores": {{
+        "purpose_achievement": 0.0-1.0,
+        "constraint_compliance": 0.0-1.0,
+        "quality_standards": 0.0-1.0,
+        "feasibility": 0.0-1.0
+    }},
     "overall_score": 0.0-1.0,
     "key_strengths": ["主要な強み"],
     "key_weaknesses": ["主要な弱み"],
     "priority_improvements": ["優先度の高い改善提案"],
-    "next_steps": ["次のステップ"]
+    "next_steps": ["次のステップ"],
+    "score_breakdown": {{
+        "purpose_achievement_weight": 0.4,
+        "constraint_compliance_weight": 0.3,
+        "quality_standards_weight": 0.2,
+        "feasibility_weight": 0.1
+    }}
 }}
 """
         return self.ai_service.generate_json(prompt)
