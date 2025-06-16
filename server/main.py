@@ -1,14 +1,18 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from sse_starlette.sse import EventSourceResponse # type: ignore
 from sqlalchemy.orm import Session
 import os
 import shutil
 from pdf2image import convert_from_path
 import pytesseract
 from typing import List, Dict, Any
+from models import NodeType
 from services.workflow_service import WorkflowService
 import logging
 import json
+from datetime import datetime
 
 from schemas import (
     CreateWorkflowRequest, CreateWorkflowResponse, 
@@ -216,3 +220,47 @@ async def update_nodes(
         raise HTTPException(status_code=404, detail="No nodes found to update")
 
     return {"status": "success", "updated_nodes": len(updated_nodes)}
+
+# REFACTOR: このstreamでワークフローを実行しているが、本来分けるべき。ステータスをRedis等で管理する。
+@app.get("/workflows/{wf_id}/run/stream")
+async def run_workflow_stream(wf_id: str, db: Session = Depends(get_db)):
+    """
+    ワークフローの実行状態をストリーミングします。
+    """
+    workflow_repo = WorkflowRepository(db)
+    workflow = workflow_repo.get_workflow(wf_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    async def event_generator():
+        try:
+            # ワークフローの実行を開始
+            workflow_service = WorkflowService(debug=DEBUG_MODE)
+            nodes = [
+                {
+                    "id": node.id,
+                    "node_type": node.node_type,
+                    "config": node.config
+                }
+                for node in workflow.nodes
+            ]
+
+            # 実行順序に従ってノードを実行
+            async for result in workflow_service.execute(nodes):
+                yield {
+                    "event": "node_update",
+                    "data": json.dumps(result, ensure_ascii=False)
+                }
+
+        except Exception as e:
+            logger.error(f"Error in workflow execution: {str(e)}")
+            yield {
+                "event": "workflow_error",
+                "data": json.dumps({
+                    "status": "error",
+                    "timestamp": datetime.now().isoformat(),
+                    "result": f"エラー: {str(e)}"
+                }, ensure_ascii=False)
+            }
+
+    return EventSourceResponse(event_generator())

@@ -1,9 +1,14 @@
-from typing import Dict, List, Any, Set, Tuple
+from typing import Dict, List, Any, Tuple, AsyncGenerator
 from collections import defaultdict, deque
 from models import NodeType
 from services.agent_service import AgentService
 from services.generative_ai_service import GenerativeAIService
 from services.formatter_service import FormatterService
+import logging
+from datetime import datetime
+import json
+
+logger = logging.getLogger('WorkflowApp')
 
 class WorkflowService:
     def __init__(self, debug: bool = False):
@@ -134,76 +139,24 @@ class WorkflowService:
 
         return execution_order
 
-    def _execute_node(self, node: dict) -> Dict[str, Any]:
-        """個々のノードを実行"""
-        node_type = node['node_type']
-        config = node['config']
-
-        if node_type == NodeType.EXTRACT_TEXT:
-            prompt = f"""
-こちらはユーザーがアップロードしたドキュメントです。
-回答の参考にしてください。
-
-ファイル名：
-{config["file_name"]}
-ファイルの内容：
-{config["extracted_text"]}
-"""
-            return {"text": prompt}
-
-        elif node_type == NodeType.GENERATIVE_AI:
-            prompt = f"""
-こちらはユーザー入力した質問です。
-できるだけ簡潔に回答してください。
-
-質問：
-{config["prompt"]}
-"""
-            generated_text = self.ai_service.generate_text(
-                prompt=config["prompt"],
-                model=config["model"],
-                temperature=config["temperature"],
-                max_tokens=config["max_tokens"]
-            )
-            return {"text": generated_text}
-
-        elif node_type == NodeType.FORMATTER:
-            previous_text = ""
-            if self.node_results:
-                last_node_id = list(self.node_results.keys())[-1]
-                previous_text = self.node_results[last_node_id].get("text", "")
-
-            formatted_text = self.formatter_service.format_text(
-                previous_text,
-                config
-            )
-            return {"text": formatted_text}
-
-        elif node_type == NodeType.AGENT:
-            previous_text = ""
-            if self.node_results:
-                last_node_id = list(self.node_results.keys())[-1]
-                previous_text = self.node_results[last_node_id].get("text", "")
-
-            result = self.agent_service.execute_agent(
-                goal=config["goal"],
-                constraints=config.get("constraints", []),
-                capabilities=config.get("capabilities", {}),
-                behavior=config.get("behavior", {}),
-                context={"previous_text": previous_text}
-            )
-
-            if result["status"] == "success":
-                return {"text": result["execution_log"][-1]["result"]}
-            else:
-                return {"text": f"エージェントの実行に失敗しました: {result.get('error', '不明なエラー')}"}
-
-        else:
-            raise ValueError(f"未知のノードタイプ: {node_type}")
-
-    def execute(self, nodes: List[dict]) -> List[str]:
+    def _ensure_string_result(self, result: Any) -> str:
         """
-        ワークフローを実行
+        結果を文字列に変換します。
+        オブジェクトの場合はJSON文字列に変換します。
+
+        Args:
+            result: 変換する結果
+
+        Returns:
+            str: 文字列に変換された結果
+        """
+        if isinstance(result, (dict, list)):
+            return json.dumps(result, ensure_ascii=False)
+        return str(result)
+
+    async def execute(self, nodes: List[dict]) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        ワークフローを実行します。
 
         ### 計算量に関するメモ：
         V: ワークフロー内のノード数
@@ -220,16 +173,210 @@ class WorkflowService:
         2. キャッシュ: O(V + E)
         3. その他の補助データ構造: O(V)
         => 全体の空間計算量も O(V + E) 
+
+        Args:
+            nodes: 実行するノードのリスト
+
+        Yields:
+            実行結果とステータス
         """
         self.node_results.clear()
         execution_order = self._get_execution_order(nodes)
-
         node_map = {node['id']: node for node in nodes}
-        results = []
+
         for node_id in execution_order:
             node = node_map[node_id]
-            outputs = self._execute_node(node)
-            self.node_results[node_id] = outputs
-            results.append(outputs["text"])
+            try:
+                if node['node_type'] == NodeType.EXTRACT_TEXT:
+                    result = await self._execute_extract_text(node['config'])
+                    self.node_results[node_id] = {"text": result}
+                    yield {
+                        "nodeId": node_id,
+                        "nodeType": node['node_type'],
+                        "status": "success",
+                        "result": self._ensure_string_result(result),
+                        "execution_log": [{
+                            "step": "テキスト抽出",
+                            "result": self._ensure_string_result(result),
+                            "timestamp": datetime.now().isoformat()
+                        }]
+                    }
 
-        return results 
+                elif node['node_type'] == NodeType.GENERATIVE_AI:
+                    result = await self._execute_generative_ai(node['config'])
+                    self.node_results[node_id] = {"text": result}
+                    yield {
+                        "nodeId": node_id,
+                        "nodeType": node['node_type'],
+                        "status": "success",
+                        "result": self._ensure_string_result(result),
+                        "execution_log": [{
+                            "step": "AI生成",
+                            "result": self._ensure_string_result(result),
+                            "timestamp": datetime.now().isoformat()
+                        }]
+                    }
+
+                elif node['node_type'] == NodeType.FORMATTER:
+                    result = await self._execute_formatter(node['config'])
+                    self.node_results[node_id] = {"text": result}
+                    yield {
+                        "nodeId": node_id,
+                        "nodeType": node['node_type'],
+                        "status": "success",
+                        "result": self._ensure_string_result(result),
+                        "execution_log": [{
+                            "step": "フォーマット",
+                            "result": self._ensure_string_result(result),
+                            "timestamp": datetime.now().isoformat()
+                        }]
+                    }
+
+                elif node['node_type'] == NodeType.AGENT:
+                    async for result in self.agent_service.execute_agent(
+                        goal=node['config']["goal"],
+                        constraints=node['config'].get("constraints", []),
+                        capabilities=node['config'].get("capabilities", {}),
+                        behavior=node['config'].get("behavior", {}),
+                        context={"previous_text": self.node_results.get(list(self.node_results.keys())[-1], {}).get("text", "")}
+                    ):
+                        if result["status"] == "success":
+                            final_result = result["execution_log"][-1]["result"]
+                            self.node_results[node_id] = {"text": self._ensure_string_result(final_result)}
+                            yield {
+                                "nodeId": node_id,
+                                "nodeType": node['node_type'],
+                                "status": "success",
+                                "result": self._ensure_string_result(final_result),
+                                "execution_log": [{
+                                    **log,
+                                    "result": self._ensure_string_result(log["result"])
+                                } for log in result["execution_log"]]
+                            }
+                        elif result["status"] in ["timeout", "max_iterations", "max_improvement_cycles"]:
+                            yield {
+                                "nodeId": node_id,
+                                "nodeType": node['node_type'],
+                                "status": "error",
+                                "result": f"エージェントの実行が終了しました: {result['error']}",
+                                "execution_log": [{
+                                    "step": "agent_error",
+                                    "result": f"エージェントの実行が終了しました: {result['error']}",
+                                    "timestamp": datetime.now().isoformat()
+                                }]
+                            }
+                        else:
+                            current_result = result["execution_log"][-1]["result"] if result["execution_log"] else "処理中"
+                            yield {
+                                "nodeId": node_id,
+                                "nodeType": node['node_type'],
+                                "status": result["status"],
+                                "result": self._ensure_string_result(current_result),
+                                "execution_log": [{
+                                    **log,
+                                    "result": self._ensure_string_result(log["result"])
+                                } for log in result["execution_log"]]
+                            }
+
+                else:
+                    raise ValueError(f"未知のノードタイプ: {node['node_type']}")
+
+            except Exception as e:
+                logger.error(f"Error executing node {node_id}: {str(e)}")
+                yield {
+                    "nodeId": node_id,
+                    "nodeType": node['node_type'],
+                    "status": "error",
+                    "result": f"エラー: {str(e)}",
+                    "execution_log": [{
+                        "step": "エラー",
+                        "result": str(e),
+                        "timestamp": datetime.now().isoformat()
+                    }]
+                }
+
+    async def _execute_extract_text(self, config: Dict[str, Any]) -> str:
+        """テキスト抽出ノードの実行"""
+        prompt = f"""
+こちらはユーザーがアップロードしたドキュメントです。
+回答の参考にしてください。
+
+ファイル名：
+{config["file_name"]}
+ファイルの内容：
+{config["extracted_text"]}
+"""
+        return prompt
+
+    async def _execute_generative_ai(self, config: Dict[str, Any]) -> str:
+        """生成AIノードの実行"""
+        prompt = f"""
+こちらはユーザー入力した質問です。
+できるだけ簡潔に回答してください。
+
+質問：
+{config["prompt"]}
+"""
+        generated_text = await self.ai_service.generate_text(
+            prompt=prompt,
+            model=config["model"],
+            temperature=config["temperature"],
+            max_tokens=config["max_tokens"]
+        )
+        return generated_text
+
+    async def _execute_formatter(self, config: Dict[str, Any]) -> str:
+        """フォーマッターノードの実行"""
+        previous_text = ""
+        if self.node_results:
+            last_node_id = list(self.node_results.keys())[-1]
+            previous_text = self.node_results[last_node_id].get("text", "")
+
+        formatted_text = await self.formatter_service.format_text(
+            previous_text,
+            config
+        )
+        return formatted_text
+
+    async def _execute_extract_text(self, config: Dict[str, Any]) -> str:
+        """テキスト抽出ノードの実行"""
+        prompt = f"""
+こちらはユーザーがアップロードしたドキュメントです。
+回答の参考にしてください。
+
+ファイル名：
+{config["file_name"]}
+ファイルの内容：
+{config["extracted_text"]}
+"""
+        return prompt
+
+    async def _execute_generative_ai(self, config: Dict[str, Any]) -> str:
+        """生成AIノードの実行"""
+        prompt = f"""
+こちらはユーザー入力した質問です。
+できるだけ簡潔に回答してください。
+
+質問：
+{config["prompt"]}
+"""
+        generated_text = await self.ai_service.generate_text(
+            prompt=prompt,
+            model=config["model"],
+            temperature=config["temperature"],
+            max_tokens=config["max_tokens"]
+        )
+        return generated_text
+
+    async def _execute_formatter(self, config: Dict[str, Any]) -> str:
+        """フォーマッターノードの実行"""
+        previous_text = ""
+        if self.node_results:
+            last_node_id = list(self.node_results.keys())[-1]
+            previous_text = self.node_results[last_node_id].get("text", "")
+
+        formatted_text = await self.formatter_service.format_text(
+            previous_text,
+            config
+        )
+        return formatted_text 

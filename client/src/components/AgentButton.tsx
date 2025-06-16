@@ -97,7 +97,7 @@ export default function AgentButton(props: AgentButtonProps) {
 
     return (
         <>
-            <Button {...props} onClick={handleOpen}>
+            <Button {...props} onClick={handleOpen} disabled={currentWorkflow.nodes.length === 0}>
                 エージェント
             </Button>
 

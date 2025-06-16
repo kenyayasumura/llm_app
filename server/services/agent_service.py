@@ -15,8 +15,8 @@ logger = logging.getLogger('AgentService')
 class AgentService:
     def __init__(self, debug: bool = False):
         self.ai_service = GenerativeAIService()
-        self.max_iterations = 3  # 最大実行回数を3回に制限
-        self.max_improvement_cycles = 3  # 改善サイクルの最大回数
+        self.max_iterations = 2  # 最大実行回数を3回に制限
+        self.max_improvement_cycles = 2  # 改善サイクルの最大回数
         self.timeout_seconds = 300  # タイムアウト（5分）
         self.min_success_rate = 0.8  # 最低成功率
         self.debug = debug
@@ -39,7 +39,7 @@ class AgentService:
             }
         }
 
-    def execute_agent(self, goal: str, constraints: List[str], capabilities: Dict[str, bool], behavior: Dict[str, float], context: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute_agent(self, goal: str, constraints: List[str], capabilities: Dict[str, bool], behavior: Dict[str, float], context: Dict[str, Any]) -> Dict[str, Any]:
         """
         エージェントを実行し、タスクの計画と実行を行う
         """
@@ -53,12 +53,22 @@ class AgentService:
         best_success_rate = 0.0
         current_content = ""
 
+        # 初期ステータスを返す
+        yield {
+            'status': 'running',
+            'execution_log': [{
+                'step': 'initialization',
+                'result': 'エージェントの初期化を開始',
+                'timestamp': datetime.now().isoformat()
+            }]
+        }
+
         while True:
             # タイムアウトチェック
             if time.time() - start_time > self.timeout_seconds:
                 if self.debug:
                     logger.warning(f"タイムアウト: {self.timeout_seconds}秒を超過")
-                return {
+                yield {
                     'status': 'timeout',
                     'execution_log': execution_log,
                     'iteration': iteration,
@@ -66,12 +76,13 @@ class AgentService:
                     'best_success_rate': best_success_rate,
                     'error': f'タイムアウト: {self.timeout_seconds}秒を超過'
                 }
+                return
 
             # 最大実行回数チェック
             if iteration >= self.max_iterations:
                 if self.debug:
                     logger.warning(f"最大実行回数に達しました: {self.max_iterations}回")
-                return {
+                yield {
                     'status': 'max_iterations',
                     'execution_log': execution_log,
                     'iteration': iteration,
@@ -79,12 +90,13 @@ class AgentService:
                     'best_success_rate': best_success_rate,
                     'error': f'最大実行回数({self.max_iterations}回)に達しました'
                 }
+                return
 
             # 改善サイクルの制限チェック
             if improvement_cycle >= self.max_improvement_cycles:
                 if self.debug:
                     logger.warning(f"最大改善サイクル数に達しました: {self.max_improvement_cycles}回")
-                return {
+                yield {
                     'status': 'max_improvement_cycles',
                     'execution_log': execution_log,
                     'iteration': iteration,
@@ -92,11 +104,21 @@ class AgentService:
                     'best_success_rate': best_success_rate,
                     'error': f'最大改善サイクル数({self.max_improvement_cycles}回)に達しました'
                 }
+                return
 
             if self.debug:
                 logger.debug(f"イテレーション {iteration + 1} 開始 (改善サイクル: {improvement_cycle + 1})")
 
             # 1. タスクの計画
+            yield {
+                'status': 'running',
+                'execution_log': execution_log + [{
+                    'step': 'planning',
+                    'result': f'イテレーション {iteration + 1} の計画を作成中',
+                    'timestamp': datetime.now().isoformat()
+                }]
+            }
+
             plan = self._create_plan(goal, constraints, capabilities, context)
             if self.debug:
                 logger.debug(f"作成された計画: {json.dumps(plan, indent=2, ensure_ascii=False)}")
@@ -105,6 +127,16 @@ class AgentService:
             for task in plan['tasks']:
                 if self.debug:
                     logger.debug(f"タスク実行: {task['description']}")
+                
+                yield {
+                    'status': 'running',
+                    'execution_log': execution_log + [{
+                        'step': 'task_execution',
+                        'result': f'タスク実行中: {task["description"]}',
+                        'timestamp': datetime.now().isoformat()
+                    }]
+                }
+
                 result = self._execute_task(task, context)
                 if self.debug:
                     logger.debug(f"タスク実行結果: {json.dumps(result, indent=2, ensure_ascii=False)}")
@@ -122,6 +154,15 @@ class AgentService:
 
             # 3. 品質チェック
             if current_content:
+                yield {
+                    'status': 'running',
+                    'execution_log': execution_log + [{
+                        'step': 'quality_check',
+                        'result': '品質チェックを実行中',
+                        'timestamp': datetime.now().isoformat()
+                    }]
+                }
+
                 reviews = []
                 for persona_name, persona in self.quality_check_personas.items():
                     review = self._get_persona_review(current_content, persona)
@@ -139,6 +180,15 @@ class AgentService:
 
                 # 改善の適用
                 if aggregated_review['priority_improvements']:
+                    yield {
+                        'status': 'running',
+                        'execution_log': execution_log + [{
+                            'step': 'improvement',
+                            'result': f'改善を適用中 (サイクル {improvement_cycle + 1})',
+                            'timestamp': datetime.now().isoformat()
+                        }]
+                    }
+
                     current_content = self._apply_improvements(current_content, aggregated_review['priority_improvements'])
                     improvement_cycle += 1  # 改善サイクルをカウントアップ
                     if self.debug:
@@ -152,7 +202,7 @@ class AgentService:
                 if current_success_rate >= self.min_success_rate:
                     if self.debug:
                         logger.info(f"目標達成: 成功率 {current_success_rate:.2f} (改善サイクル: {improvement_cycle})")
-                    return {
+                    yield {
                         'status': 'success',
                         'execution_log': execution_log,
                         'plan': plan,
@@ -163,6 +213,7 @@ class AgentService:
                         'improvement_cycle': improvement_cycle,
                         'success_rate': current_success_rate
                     }
+                    return
 
             iteration += 1
 

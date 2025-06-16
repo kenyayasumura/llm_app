@@ -1,4 +1,4 @@
-import { CreateWorkflowRequest, CreateWorkflowResponse, WorkflowDetailResponse, NodeType, Node, AddNodeRequest, FormatterConfig, GenerativeAIConfig, ExtractTextConfig, AgentConfig } from './types';
+import { CreateWorkflowRequest, CreateWorkflowResponse, WorkflowDetailResponse, NodeType, Node, AddNodeRequest, FormatterConfig, GenerativeAIConfig, ExtractTextConfig, AgentConfig, Workflow } from './types';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -75,4 +75,45 @@ export const updateNodes = async (workflowId: string, nodes: Node[]) => {
         throw new Error('Failed to update nodes');
 
     return response.json();
-}; 
+};
+
+export const runWorkflowWithSSE = (
+    workflowId: string,
+    onNodeUpdate: (nodeId: string, status: 'success' | 'error' | 'running', result: string, execution_log?: any[]) => void
+) => {
+    const eventSource = new EventSource(`${API_BASE_URL}/workflows/${workflowId}/run/stream`);
+
+    eventSource.addEventListener('node_start', (event) => {
+        const data = JSON.parse(event.data);
+        onNodeUpdate(data.nodeId, 'running', data.result, data.execution_log);
+    });
+
+    eventSource.addEventListener('node_complete', (event) => {
+        const data = JSON.parse(event.data);
+        onNodeUpdate(data.nodeId, 'success', data.result, data.execution_log);
+    });
+
+    eventSource.addEventListener('node_error', (event) => {
+        const data = JSON.parse(event.data);
+        onNodeUpdate(data.nodeId, 'error', data.result, data.execution_log);
+    });
+
+    eventSource.addEventListener('node_update', (event) => {
+        const data = JSON.parse(event.data);
+        onNodeUpdate(data.nodeId, data.status, data.result, data.execution_log);
+    });
+
+    eventSource.addEventListener('workflow_error', (event) => {
+        const data = JSON.parse(event.data);
+        onNodeUpdate('workflow', 'error', data.result, data.execution_log);
+    });
+
+    eventSource.onerror = (error) => {
+        console.error('SSE Error:', error);
+        eventSource.close();
+    };
+
+    return () => {
+        eventSource.close();
+    };
+};

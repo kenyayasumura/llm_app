@@ -3,7 +3,7 @@ from typing import Dict, Any
 import mojimoji
 
 class FormatterService:
-    def format_text(self, text: str, config: Dict[str, Any]) -> str:
+    async def format_text(self, text: str, config: Dict[str, Any]) -> str:
         """
         テキストを指定されたルールに従って整形します。
         

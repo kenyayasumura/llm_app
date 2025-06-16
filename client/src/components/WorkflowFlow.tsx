@@ -119,7 +119,7 @@ export const WorkflowFlow = (props: WorkflowFlowProps) => {
     }, [initializeNodes]);
 
     return (
-        <Box sx={{ width: '100%', height: 'calc(100vh - 400px)', display: 'flex' }}>
+        <Box sx={{ width: '100%', height: 'calc(100vh - 600px)', display: 'flex' }}>
             <Box sx={{ flex: 1 }}>
                 <ReactFlow
                     colorMode="dark"
