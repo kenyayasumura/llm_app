@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     Box,
     Typography,
@@ -38,41 +38,62 @@ export default function WorkflowList() {
 
     const handleRunWorkflow = async () => {
         setLoading(true);
-        setExecutionLogs([]);
+        setExecutionLogs([]);  // ログをクリア
         try {
             if (!currentWorkflow) return;
-
-            // 実行開始時に各ノードをrunning状態で初期化
-            const initialLogs: ExecutionLog[] = currentWorkflow.nodes.map(node => ({
-                nodeId: node.id,
-                nodeType: node.node_type,
-                status: 'running' as const,
-                timestamp: new Date().toISOString(),
-                result: '実行中...'
-            }));
-            setExecutionLogs(initialLogs);
 
             // SSEを使用してワークフローを実行
             const cleanup = runWorkflowWithSSE(currentWorkflow.id, (nodeId, status, result, execution_log) => {
                 setExecutionLogs(prevLogs => {
                     const newLogs = [...prevLogs];
                     
-                    // NOTE: 並び替えのために、同じnodeIdのログを探して、そのログを削除して、新しいログを追加する
+                    // 同じnodeIdのログを探して、そのログを削除
                     const existingIndex = newLogs.findIndex(log => log.nodeId === nodeId);
-                    const newLog: ExecutionLog = {
-                        nodeId,
-                        nodeType: newLogs[existingIndex]?.nodeType || '',
-                        status,
-                        timestamp: new Date().toISOString(),
-                        result,
-                        execution_log
-                    };
-
                     if (existingIndex !== -1) {
                         newLogs.splice(existingIndex, 1);
                     }
 
-                    return [...newLogs, newLog];
+                    // 新しいログを作成
+                    const node = currentWorkflow.nodes.find(n => n.id === nodeId);
+                    const newLog: ExecutionLog = {
+                        nodeId,
+                        nodeType: node?.node_type || '',
+                        status,
+                        timestamp: new Date().toISOString(),
+                        result,
+                        execution_log,
+                        execution_order: newLogs[existingIndex]?.execution_order || newLogs.length
+                    };
+
+                    // 新しいログを追加
+                    newLogs.push(newLog);
+
+                    // 実行中のノードが複数ある場合は、最新のものだけを残す
+                    const runningLogs = newLogs.filter(log => log.status === 'running');
+                    if (runningLogs.length > 1) {
+                        const latestRunningLog = runningLogs[runningLogs.length - 1];
+                        newLogs.forEach(log => {
+                            if (log.status === 'running' && log.nodeId !== latestRunningLog.nodeId) {
+                                log.status = 'pending';
+                            }
+                        });
+                    }
+
+                    // 実行順序でソート
+                    const sortedLogs = newLogs.sort((a, b) => (a.execution_order || 0) - (b.execution_order || 0));
+
+                    // すべてのノードが完了したかチェック
+                    const allNodesCompleted = currentWorkflow.nodes.every(node => {
+                        const nodeLog = sortedLogs.find(log => log.nodeId === node.id);
+                        return nodeLog && (nodeLog.status === 'success' || nodeLog.status === 'error');
+                    });
+
+                    // すべてのノードが完了したらloadingをfalseに
+                    if (allNodesCompleted) {
+                        setLoading(false);
+                    }
+
+                    return sortedLogs;
                 });
             });
 
@@ -89,7 +110,6 @@ export default function WorkflowList() {
                 result: error.message
             }]);
             showSnackbar(error.message, 'error');
-        } finally {
             setLoading(false);
         }
     }
@@ -120,6 +140,12 @@ export default function WorkflowList() {
 
         return { nodeTemplate, edgeTemplate }
     }, [currentWorkflow?.nodes])
+
+    useEffect(() => {
+        if (currentWorkflow) {
+            setExecutionLogs([]);
+        }
+    }, [currentWorkflow?.id])
 
     return (
         <Box>
@@ -156,6 +182,7 @@ export default function WorkflowList() {
 
                         <Stack direction="row" justifyContent="center" spacing={2} sx={{ mt: 2 }}>
                             <GenerativeAiButton
+                                disabled={loading}
                                 variant="contained"
                                 currentWorkflow={currentWorkflow}
                                 nodeTemplate={nodeTemplate}
@@ -164,6 +191,7 @@ export default function WorkflowList() {
                                 sx={{ width: 160 }}
                             />
                             <FormatterButton
+                                disabled={loading}
                                 variant="contained"
                                 currentWorkflow={currentWorkflow}
                                 nodeTemplate={nodeTemplate}
@@ -172,6 +200,7 @@ export default function WorkflowList() {
                                 sx={{ width: 160 }}
                             />
                             <ExtractTextButton
+                                disabled={loading}
                                 variant="contained"
                                 currentWorkflow={currentWorkflow}
                                 nodeTemplate={nodeTemplate}
@@ -180,6 +209,7 @@ export default function WorkflowList() {
                                 sx={{ width: 160 }}
                             />
                             <AgentButton
+                                disabled={loading}
                                 variant="contained"
                                 currentWorkflow={currentWorkflow}
                                 nodeTemplate={nodeTemplate}

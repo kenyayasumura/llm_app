@@ -27,7 +27,7 @@ interface FormatterButtonProps extends ButtonProps {
 }
 
 export default function FormatterButton(props: FormatterButtonProps) {
-    const { currentWorkflow, nodeTemplate, edgeTemplate, onRefetch } = props
+    const { currentWorkflow, nodeTemplate, edgeTemplate, onRefetch, disabled } = props
     const [open, setOpen] = useState(false);
     const { showSnackbar } = useSnackbar();
     const defaultFormData: FormatterConfig = {
@@ -68,7 +68,7 @@ export default function FormatterButton(props: FormatterButtonProps) {
         <>
             <Button
                 {...props}
-                disabled={currentWorkflow.nodes.length === 0}
+                disabled={currentWorkflow.nodes.length === 0 || disabled}
                 onClick={handleOpen}
             >
                 フォーマッター

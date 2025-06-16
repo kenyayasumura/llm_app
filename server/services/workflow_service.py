@@ -323,9 +323,18 @@ class WorkflowService:
 
     async def _execute_generative_ai(self, config: Dict[str, Any]) -> str:
         """生成AIノードの実行"""
+        # 過去のノードの結果を取得
+        previous_text = ""
+        if self.node_results:
+            last_node_id = list(self.node_results.keys())[-1]
+            previous_text = self.node_results[last_node_id].get("text", "")
+
         prompt = f"""
 こちらはユーザー入力した質問です。
 できるだけ簡潔に回答してください。
+
+過去のやり取り：
+{previous_text}
 
 質問：
 {config["prompt"]}
@@ -366,9 +375,18 @@ class WorkflowService:
 
     async def _execute_generative_ai(self, config: Dict[str, Any]) -> str:
         """生成AIノードの実行"""
+        # 過去のノードの結果を取得
+        previous_text = ""
+        if self.node_results:
+            last_node_id = list(self.node_results.keys())[-1]
+            previous_text = self.node_results[last_node_id].get("text", "")
+
         prompt = f"""
 こちらはユーザー入力した質問です。
 できるだけ簡潔に回答してください。
+
+過去のやり取り：
+{previous_text}
 
 質問：
 {config["prompt"]}

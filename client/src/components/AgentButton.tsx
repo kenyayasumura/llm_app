@@ -29,7 +29,7 @@ interface AgentButtonProps extends ButtonProps {
 }
 
 export default function AgentButton(props: AgentButtonProps) {
-    const { currentWorkflow, nodeTemplate, edgeTemplate, onRefetch } = props;
+    const { currentWorkflow, nodeTemplate, edgeTemplate, onRefetch, disabled } = props;
     const [open, setOpen] = useState(false);
     const { showSnackbar } = useSnackbar();
     const defaultFormData = {
@@ -97,7 +97,7 @@ export default function AgentButton(props: AgentButtonProps) {
 
     return (
         <>
-            <Button {...props} onClick={handleOpen} disabled={currentWorkflow.nodes.length === 0}>
+            <Button {...props} onClick={handleOpen} disabled={currentWorkflow.nodes.length === 0 || disabled}>
                 エージェント
             </Button>
 

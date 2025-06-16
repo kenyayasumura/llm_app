@@ -16,10 +16,15 @@ export interface ExecutionLogEntry {
 export interface ExecutionLog {
     nodeId: string;
     nodeType: string;
-    status: 'success' | 'error' | 'running';
+    status: 'running' | 'success' | 'error' | 'pending';
     timestamp: string;
     result: string;
-    execution_log?: ExecutionLogEntry[];
+    execution_order?: number;
+    execution_log?: Array<{
+        step: string;
+        result: string;
+        timestamp: string;
+    }>;
 }
 
 interface ExecutionLogPanelProps extends PaperProps {
