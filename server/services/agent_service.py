@@ -36,6 +36,11 @@ class AgentService:
                 "role": "ビジネス価値と実用性を評価する専門家",
                 "focus_areas": ["ビジネス価値", "実用性", "ROI"],
                 "evaluation_criteria": ["ビジネス価値", "実用性", "ROI"]
+            },
+            "summarizer": {
+                "role": "実行結果を分析し、分かりやすくまとめる専門家",
+                "focus_areas": ["全体の概要", "重要なポイント", "次のステップ", "補足情報"],
+                "evaluation_criteria": ["全体の概要", "重要なポイント", "次のステップ", "補足情報"]
             }
         }
 
@@ -186,6 +191,10 @@ class AgentService:
                 if current_success_rate >= self.min_success_rate:
                     if self.debug:
                         logger.info(f"目標達成: 成功率 {current_success_rate:.2f} (改善サイクル: {improvement_cycle})")
+
+                    # まとめ役のペルソナによる最終報告
+                    summary = self._get_persona_review(current_content, self.quality_check_personas["summarizer"])
+                    
                     yield {
                         'status': 'success',
                         'execution_log': execution_log,
@@ -195,7 +204,8 @@ class AgentService:
                         'final_content': current_content,
                         'iteration': iteration,
                         'improvement_cycle': improvement_cycle,
-                        'success_rate': current_success_rate
+                        'success_rate': current_success_rate,
+                        'summary': summary
                     }
                     return
 
