@@ -1,7 +1,8 @@
 export enum NodeType {
     EXTRACT_TEXT = "extract_text",
     GENERATIVE_AI = "generative_ai",
-    FORMATTER = "formatter"
+    FORMATTER = "formatter",
+    AGENT = "agent"
 }
 
 export interface NodeConfig {
@@ -47,10 +48,26 @@ export interface FormatterConfig extends WorkflowConfig {
     ascii?: boolean;
 }
 
+export interface AgentConfig extends WorkflowConfig {
+    goal: string;
+    constraints: string[];
+    capabilities: {
+        planning: boolean;
+        web_search: boolean;
+        execution: boolean;
+        review: boolean;
+    };
+    behavior: {
+        aggressiveness: number;
+        caution: number;
+    };
+    operation: string;
+}
+
 export interface Node {
     id: string;
     node_type: NodeType;
-    config: ExtractTextConfig | GenerativeAIConfig | FormatterConfig;
+    config: ExtractTextConfig | GenerativeAIConfig | FormatterConfig | AgentConfig;
 }
 
 export interface Workflow {
@@ -67,7 +84,7 @@ export type CreateWorkflowResponse = Omit<Workflow, "nodes">;
 
 export interface AddNodeRequest {
     node_type: NodeType;
-    config: ExtractTextConfig | GenerativeAIConfig | FormatterConfig;
+    config: ExtractTextConfig | GenerativeAIConfig | FormatterConfig | AgentConfig;
 }
 
 export interface WorkflowDetailResponse {

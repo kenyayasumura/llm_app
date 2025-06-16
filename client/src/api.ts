@@ -1,4 +1,4 @@
-import { CreateWorkflowRequest, CreateWorkflowResponse, WorkflowDetailResponse, NodeType, Node, AddNodeRequest, FormatterConfig, GenerativeAIConfig, ExtractTextConfig } from './types';
+import { CreateWorkflowRequest, CreateWorkflowResponse, WorkflowDetailResponse, NodeType, Node, AddNodeRequest, FormatterConfig, GenerativeAIConfig, ExtractTextConfig, AgentConfig } from './types';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -24,7 +24,7 @@ export async function getWorkflow(workflowId: string): Promise<WorkflowDetailRes
     return response.json();
 }
 
-export async function addNode(workflowId: string, nodeType: NodeType, config: ExtractTextConfig | GenerativeAIConfig | FormatterConfig): Promise<void> {
+export async function addNode(workflowId: string, nodeType: NodeType, config: ExtractTextConfig | GenerativeAIConfig | FormatterConfig | AgentConfig): Promise<void> {
     const requestBody: AddNodeRequest = { node_type: nodeType, config };
     const response = await fetch(`${API_BASE_URL}/workflows/${workflowId}/nodes`, {
         method: 'POST',

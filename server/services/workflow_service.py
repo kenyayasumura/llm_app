@@ -1,15 +1,18 @@
 from typing import Dict, List, Any, Set, Tuple
 from collections import defaultdict, deque
 from models import NodeType
+from services.agent_service import AgentService
 from services.generative_ai_service import GenerativeAIService
 from services.formatter_service import FormatterService
 
 class WorkflowService:
-    def __init__(self):
+    def __init__(self, debug: bool = False):
         self.ai_service = GenerativeAIService()
         self.formatter_service = FormatterService()
+        self.agent_service = AgentService(debug=debug)
         self.node_results: Dict[str, Dict[str, Any]] = {}  # ノードID -> 出力データ
         self._cycle_cache: Dict[str, bool] = {}  # 循環チェックの結果をキャッシュ
+        self.debug = debug
 
     def _check_cycle(self, current_node: str, graph: Dict[str, List[str]], visited_in_path: set) -> bool:
         """
@@ -144,7 +147,7 @@ class WorkflowService:
 ファイル名：
 {config["file_name"]}
 ファイルの内容：
-{config["extract_text"]}
+{config["extracted_text"]}
 """
             return {"text": prompt}
 
@@ -175,6 +178,25 @@ class WorkflowService:
                 config
             )
             return {"text": formatted_text}
+
+        elif node_type == NodeType.AGENT:
+            previous_text = ""
+            if self.node_results:
+                last_node_id = list(self.node_results.keys())[-1]
+                previous_text = self.node_results[last_node_id].get("text", "")
+
+            result = self.agent_service.execute_agent(
+                goal=config["goal"],
+                constraints=config.get("constraints", []),
+                capabilities=config.get("capabilities", {}),
+                behavior=config.get("behavior", {}),
+                context={"previous_text": previous_text}
+            )
+
+            if result["status"] == "success":
+                return {"text": result["execution_log"][-1]["result"]}
+            else:
+                return {"text": f"エージェントの実行に失敗しました: {result.get('error', '不明なエラー')}"}
 
         else:
             raise ValueError(f"未知のノードタイプ: {node_type}")

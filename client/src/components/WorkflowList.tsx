@@ -10,6 +10,7 @@ import WorkflowCreationForm from './WorkflowCreationForm';
 import GenerativeAiButton from './GenerativeAiButton';
 import FormatterButton from './FormatterButton';
 import ExtractTextButton from './ExtractTextButton';
+import AgentButton from './AgentButton';
 import { WorkflowFlow } from './WorkflowFlow';
 import { NodeConfig, EdgeConfig, Workflow } from '../types';
 import { getWorkflow, runWorkflow } from '../api';
@@ -124,6 +125,14 @@ export default function WorkflowList() {
                             sx={{ width: 160 }}
                         />
                         <ExtractTextButton
+                            variant="contained"
+                            currentWorkflow={currentWorkflow}
+                            nodeTemplate={nodeTemplate}
+                            edgeTemplate={edgeTemplate}
+                            onRefetch={handleRefetch}
+                            sx={{ width: 160 }}
+                        />
+                        <AgentButton
                             variant="contained"
                             currentWorkflow={currentWorkflow}
                             nodeTemplate={nodeTemplate}

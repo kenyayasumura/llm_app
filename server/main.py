@@ -7,6 +7,8 @@ from pdf2image import convert_from_path
 import pytesseract
 from typing import List, Dict, Any
 from services.workflow_service import WorkflowService
+import logging
+import json
 
 from schemas import (
     CreateWorkflowRequest, CreateWorkflowResponse, 
@@ -15,6 +17,13 @@ from schemas import (
 from database import get_db, engine, Base
 from repositories.workflow_repository import WorkflowRepository
 from repositories.node_repository import NodeRepository
+
+# ロガーの設定
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger('WorkflowApp')
 
 app = FastAPI(title="Workflow App")
 
@@ -33,8 +42,11 @@ Base.metadata.create_all(bind=engine)
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# デバッグモードの設定
+DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
+
 # ワークフロー実行サービスのインスタンス
-workflow_service = WorkflowService()
+workflow_service = WorkflowService(debug=DEBUG_MODE)
 
 @app.post("/workflows", response_model=CreateWorkflowResponse)
 def create_workflow(req: CreateWorkflowRequest, db: Session = Depends(get_db)):
@@ -155,6 +167,9 @@ async def run_workflow(workflow_id: str, db: Session = Depends(get_db)):
         ワークフローの実行結果（文字列の配列）
     """
     try:
+        if DEBUG_MODE:
+            logger.debug(f"ワークフロー実行開始: workflow_id={workflow_id}")
+
         workflow_repo = WorkflowRepository(db)
         workflow = workflow_repo.get_workflow(workflow_id)
         if not workflow:
@@ -169,12 +184,23 @@ async def run_workflow(workflow_id: str, db: Session = Depends(get_db)):
             for node in workflow.nodes
         ]
 
+        if DEBUG_MODE:
+            logger.debug(f"実行するノード: {json.dumps(nodes, indent=2, ensure_ascii=False)}")
+
         results = workflow_service.execute(nodes)
+
+        if DEBUG_MODE:
+            logger.debug(f"実行結果: {json.dumps(results, indent=2, ensure_ascii=False)}")
+
         return results
 
     except ValueError as e:
+        if DEBUG_MODE:
+            logger.error(f"バリデーションエラー: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        if DEBUG_MODE:
+            logger.error(f"実行エラー: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"ワークフローの実行中にエラーが発生しました: {str(e)}")
 
 @app.put("/workflows/{workflow_id}/nodes")

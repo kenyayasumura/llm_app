@@ -10,6 +10,7 @@ class NodeType(str, Enum):
     EXTRACT_TEXT = "extract_text"
     GENERATIVE_AI = "generative_ai"
     FORMATTER = "formatter"
+    AGENT = "agent"
 
 class WorkflowDB(Base):
     __tablename__ = "workflows"
@@ -23,7 +24,7 @@ class NodeDB(Base):
 
     id = Column(String, primary_key=True)
     workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False)
-    node_type = Column(SQLAlchemyEnum(NodeType), nullable=False)
+    node_type = Column(String, nullable=False)
     config = Column(JSON, nullable=False)
     x = Column(Integer, default=0)  # ReactFlowのX座標
     y = Column(Integer, default=0)  # ReactFlowのY座標
